@@ -1,4 +1,4 @@
-# Drug Targetability
+# Quantifying Cancer Drug Targetability across Biochemical Pathways
 
 ## Problem Being Addressed
 
