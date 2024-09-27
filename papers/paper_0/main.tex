@@ -1,0 +1,1226 @@
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{authblk}
+\usepackage{blindtext}
+\usepackage[capposition=top]{floatrow}
+\usepackage{forloop}
+\usepackage{graphicx}
+\usepackage[cal=boondoxo]{mathalfa}
+\usepackage{mathtools}
+\usepackage{multirow,booktabs,setspace,caption}
+\usepackage{rotating}
+\usepackage[table]{xcolor}
+\usepackage {tikz}
+\usepackage{verbatim}
+\usepackage{xfp}
+
+\usetikzlibrary {positioning}
+
+\DeclareCaptionLabelSeparator*{spaced}{\\[2ex]}
+\captionsetup[table]{textfont=it,format=plain,justification=justified,
+ singlelinecheck=false,labelsep=spaced,skip=0pt}
+\captionsetup[figure]{labelsep=period,labelfont=it,justification=justified,
+ singlelinecheck=false,font=doublespacing}
+
+\definecolor{burlywood}{rgb}{0.87, 0.72, 0.53}
+\definecolor{frenchrose}{rgb}{0.96, 0.29, 0.54}
+\definecolor{palecornflowerblue}{rgb}{0.67, 0.8, 0.94}
+\definecolor{teagreen}{rgb}{0.82, 0.94, 0.75}
+
+\usepackage[backend=bibtex, style=nature, sorting=none]{biblatex}
+\bibliography{citation.bib}
+
+\usepackage{datatool, filecontents}
+\DTLsetseparator{=}
+\DTLloaddb[noheader, keys={thekey,thevalue}]{mydata}{python_data.dat}
+\newcommand{\var}[1]{\DTLfetch{mydata}{thekey}{#1}{thevalue}}
+
+\definecolor{lightgray}{gray}{0.9}
+
+\newcommand{\drugA}{Sunitinib Malate}
+\newcommand{\drugB}{Bosutinib}
+\newcommand{\drugC}{Imatinib Mesylate}
+
+\newcommand{\gene}{EGFR}
+\newcommand{\protein}{Epidermal growth factor receptor}
+\newcommand{\rootA}{Disease}
+\newcommand{\rootB}{Signal Transduction}
+
+\newcounter{ctr}
+
+\title{Quantifying Cancer Drug Targetability across Biochemical Pathways}
+\author[1, 2]{Stuart Hagler}
+\affil[1]{Division of Bioinformatics and Computational Biology, Department of Medical Informatics and Clinical Epidemiology, Oregon Health \& Science University, Portland, OR 97239, USA}
+\affil[2]{Oregon Clinical and Translational Research Institute, Oregon Health \& Science University, Portland, OR 97239, USA}
+\date{}
+
+\setcounter{Maxaffil}{0}
+\renewcommand\Affilfont{\itshape\small}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+The evaluation of cancer drug treatments within the complex context of biological networks and pathways is challenging. Drugs can be "promiscuous," targeting multiple genes or pathways, not just the ones of interest. This complexity makes it difficult to assess the full impact of a drug solely based on individual knowledgebases. We make the impact more comprehensible through the characterization of drug targetability in terms of a combination of biochemical pathway data from the Reactome Knowledgebase and drug-target interaction data from the Cancer Targetome. This leads to a graphical representation of drug targetability. We further improve comprehensibility by developing metrics to quantify the graph structures in order to evaluate drug target specificity and navigate the hierarchical nature of biological networks and identify candidate treatment options to increase specificity and minimize off-target effects.. We have developed software that calculates these metrics for drugs in the Cancer Targetome. The software is availablefor research puposes only at https://github.com/sehagler/drug\_targetability.
+\end{abstract}
+
+\section{Introduction}
+
+Cancer was the second leading cause of death in the US in 2019 with 599,601 recorded deaths or a rate of 146.0 per 100,000 people.\cite{https://doi.org/10.3322/caac.21708} Recent approaches to the treatment of cancer have pivoted from 'one size fits all' to individualized approaches collected under the banner of precision medicine in which multiple data sources ranging from genomic sequencing to digital health metrics are harnessed to make clinical and therapeutic decisions.\cite{10.41032Fijpvm.IJPVM_375_19} A key challenge is assessment of evidence to support therapeutic selection based on molecular characterization of the tumor (mutation, gene expression etc). Target-Drug evidence can aid in this decision making especially in the context of the underlying pathways. Two key resources for this are the Reactome Knowledgeable and the Cancer Targetome. 
+
+The Reactome Knowledgebase provides manually curated molecular details of physiological and pathological processes in humans.\cite{10.1093/nar/gkab1028} It is organized as a graph where the vertices are (biochemical) pathways each consisting of a series of connected (biochemical) reactions and the edges denote a parent-child relationship between two pathways indicating that the child pathway contains a subset of the reactions in the parent pathway. Conventionally the aggregate of all these processes in the human body is called the \noindent\textit{Reactome}. The graphical structure defined by the Reactome Knowledgebase enables oncologists to not merely understand the protein's action in individual processes within the graph, but also to quantify the protein's aggregate action across the entire Reactome. We can think of the pathways as the sets of proteins involved in the corresponding reactions and the edges indicating superset-subset relationships among those sets.
+
+The Cancer Targetome provides a manually curated database of drug-target interactions.\cite{BLUCHER20171085} For our immediate purpose, we can think of this database as linking drugs to the set of proteins they target. We can think of the aggregate effect of a drug across the Reactome in terms of the combined aggregate actions of the proteins targeted by the drug.
+
+In precision oncology, these resources allow an oncologist to assess: (1) whether a key gene mutated in a patient is targetable (are there drug-gene target relationships in targetome) and (2) whether, for the pathway(s) this gene is a member of, there are other genes that are targetable. The aggregate effect of each drug across the Reactome may be calculated by looking at the combined aggregate actions of the proteins targeted by that drug\textemdash both those genes of interest (mutated, overexpressed etc) and the others that share pathways with those genes. This collection of pathways determines a subgraph within the Reactome graph. At this point the oncologist encounters a problem. The subgraph characterizing the aggregate effect of the proteins across the Reactome will be large and complicated. The oncologist requires a method to visualize and summarize across this graph to assess targetabilithy in the context of the specific patient. 
+
+In this paper, we aim to provide mathematical basis for reasoning about the aggregate effects of a drug on the Reactome. We do this by characterizing a drug in terms of the proteins targeted by the drug and constructing a subgraph of the reactome consisting of only those pathways containing proteins targeted by the drug. We then construct a set of metrics that can be used to provide information about the size and topology of the subgraphs that characterize the drug.
+
+\section{Preliminaries}
+
+We begin by defining terminiology that we use in the analysis of the Reactome graph as well as auxiliary vertices that we add to the graph and auxiliary sets that we use in constructiong the analysis.
+
+\subsection{Terminology}
+
+\noindent\textit{Augment Vertex} - Given a graph $\Gamma$, an augmented graph is an auxiliary graph to $\Gamma$ constructed by making a copy of $\Gamma$ and adding one or more augmented vertices $V'$ and necessary edges such that each $V'$ is a child vertex to some vertex $V \in \Gamma$ (not necessarily the same $V$) and each $V'$ has no child vertices of its own.
+
+\noindent\textit{Augmented Tree} - Given a tree $T$, an augmented tree is an auxiliary tree constructed from $T$ through the addition of one or more augment vertices.
+
+\noindent\textit{Child Vertex} - Given a graph $\Gamma$ vertex $V \in \Gamma$, a vertex $V' \in \Gamma$ is a child of $V$ if the two vertices are connected by an edge and the edge indicates that $V$ is the parent and $V'$ is the child.
+
+\noindent\textit{Conjoined Paths} - Given a graph $\Gamma$, two paths $\Pi, \Pi' \subseteq \Gamma$ are conjoined if they they havve at least one non-root non -$\bot$ vertex in common.
+
+\noindent\textit{Conjointness} - A broad property of a graph $\Gamma$ reflecting the extent to which the paths in $\Gamma$ are conjoined. This property may be quantified in various ways. We propose one way of quantifyiing this property in this paper.
+
+\noindent\textit{Crosstalk Lattice} - A lattice $\Lambda$ is a crosstalk lattice if every path $\Pi \subseteq \Lambda$ is a crosstalk path.
+
+\noindent\textit{Crosstalk Vertex} - Given a graph $\Gamma$, a vertex $V \in \Gamma$ is a vertex having two or more parent vertices.
+
+\noindent\textit{Edge} - A line in a graph connecting two vertices which designates one of the vertices as the parent and the other vertex as the child.
+
+\noindent\textit{Graph} - A set of vertices $\{V\}$ and edges $E$ such that every edge in $E$ connects two different vertices in $\{V\}$ and every vertex in $\{V\}$ is connected to another vertex in $\{V\}$ by an edge in $E$. Furthermore, a graph has no cycles in the sense that we cannot construct a sequence of vertices in $\{V\}$ connected in sequence by edges in $E$ where, moving always from parent to child, we return to the original vertex.
+
+\noindent\textit{Lattice} - A graph having exactly one root vertex and one leaf vertex.
+
+\noindent\textit{Leaf Vertex} - A vertex having no child vertices
+
+\noindent\textit{Lineage Vertex} - A vertex whose parent is a root vertex. We denote the set of lineages vertices in a tree by $\{L\}$, and the number of lineage vertices in a tree by $|L|$.
+
+\noindent\textit{Parent Vertex} - Given a graph $\Gamma$ vertex $V \in \Gamma$, a vertex $V' \in \Gamma$ is a parent of $V$ if the two vertices are connected by an edge and the edge indicates that $V$ is the child and $V'$ is the parent.
+
+\noindent\textit{Path} - Given a graph $\Gamma$ a path $\Pi \subseteq \Gamma$ is a sequence of vertices $V \in \Gamma$, connected by edges $E \in \Gamma$, such that (1) every consecutive pair of vertices in the sequence is connected by an edge designating the first vertex as the parent and the second as the child, (2) the first vertex is a root vertex of $\Gamma$, and (3) the last vertex is a leaf vertex of $\Gamma$. By our definitions a path is a graph, a lattice, and a tree. We denote the set of paths in a tree by $\{\Pi\}$, and the number of paths in a tree by $|\Pi|$.
+
+\noindent\textit{Path Depth} - The number of edges in a path.
+
+\noindent\textit{Root Vertex} - A vertex having no parent vertices.
+
+\noindent\textit{Subgraph} - Given a graph $\Gamma$, a subgraph $\Gamma'$ is a graph whose set of vertices is a subset of the set of vertices in $\Gamma$ and whose edges are a subset of the edges in graph $\Gamma$. This is denoted by $\Gamma' \subseteq \Gamma$.
+
+\noindent\textit{Subtree} - A subgraph that is also a tree.
+
+\noindent\textit{Tree} - A graph having exactly one root vertex and no crosstalk vertices.
+
+\noindent\textit{Vertex} - A point on a graph and conntected to another vertex via an edge. We denote the set of vertices in a tree by $\{V\}$, and the number of verticess in a tree by $|V|$.
+
+\subsubsection{Auxiliary Vertices}
+
+\noindent\textit{BOTTOM} - A vertex added to the Reactome graph that is the child of all leaf vertices in the original graph, also denoted by $\bot$.
+
+\noindent\textit{TOP} - A vertex added to the Reactome graph that is the parent of all root vertices in the original graph, also denoted by $\top$
+
+\subsubsection{Auxiliary Sets}
+
+\noindent$\mathfrak{Drugs}$ = The set of all drugs in the Cancer Targetome \\
+\noindent$\mathfrak{PathwayNames}$ = The set of all pathway names in Reactome Knowledgebase together with 'Universal Pathway' and 'Empty Pathway' \\
+\noindent$\mathfrak{Proteins}$ = The set of all proteins in the Reactome Knowledgebase \\
+\noindent$\mathfrak{StableIDs}$ = The set of all stable identifiers in Reactome Knowledgebase together with 'TOP' and 'BOTTOM' \\
+
+\section{Analysis of the Reactome graph}
+
+The Reactome graph provides a description of the biochemical processes in a human being in the form of a structure containing (1) vertices corresponding to (biochemical) pathways each of which represents a series of connected (biochemical) reactions, (2) edges indicating parent-child relationships between vertices where a parent vertex includes all of the reactions contained in any of its child vertices. The strategy we adopt is to characterize the targetability of a drug by identifying subgraphs of the Reactome graph that contain those pathways that include reactions which involve proteins targeted by the drug. In this section, we develop an analysis of the Reactome graph into substructures of that graph that will facilitate this graphical understanding of drug targetability.
+
+\subsection{Reactome Lattice \& Reactome Data Function}
+
+We are given Reactome Knowledgebase in the form of a graph. We find that the development of our analysis is smoother if we work with the closely related\textemdash auxiliary\textemdash Reactome Lattice $\mathfrak R_L$. We define a \textit{lattice} to be a graph having exactly one root vertex and one leaf vertex. We construct $\mathfrak R_L$ by making a copy of the Reactome graph and (1) adding a vertex $\top$ (\textit{top}) together with necessary edges so that $\top$ is the parent of all root vertices in the Reactome graph, (2) adding a vertex $\bot$ together with necessary edges so that $\bot$ (\textit{bottom}) is the child of all leaf vertices in the Reactome grapg. The vertex $\top$ is the \textit{Universal Pathway} containing all reactions, while the vertex $\bot$ is the \textit{Empty Pathway} containing no reactions. The point in adding $\top$ is to ensure that the graph we are talking about does not consist of multiple unconnected graphs, and to ensure that every graph we work with has a single root vertex. The $\bot$ vertex is added to make the whole graph a lattice. We illustrate what $\mathfrak R_L$ looks like using a much simpler toy model in Fig. \ref{figure:toy_model_lattice}.
+
+The vertices of $\mathfrak R_L$ are associated with sets of data derving from their association with pathways defined in the Reactome Knowledgebase. We capture this formally by defining function $Reactome(\cdot)$ which maps vertices of $\mathfrak R_L$ to a set of data associated with the vertex. We require that the data set contain the name of the pathway corresponding to the vertex:
+
+\begin{equation}
+	\begin{aligned}
+		Reactome(V) \cap \mathfrak{PathwayNames} = \\
+		\begin{cases}
+			\text{Pathway Name of V}, & \text{ if $V \notin \{\top, \bot\}$} \\
+			\text{'Universal Pathway'}, & \text{ if $V = \top$} \\
+			\text{'Empty Pathway'}, & \text{ if $V = \bot$}.
+		\end{cases}
+	\end{aligned}
+\end{equation}
+
+We further require that the data set contain the Reactome stable ID associated with the vertex:
+
+\begin{equation}
+	\begin{aligned}
+		Reactome(V) \cap \mathfrak{StableIDs} = \\
+		\begin{cases}
+			\text{Stable ID of V}, & \text{ if $V \notin \{\top, \bot\}$} \\
+			\text{'TOP'}, & \text{ if $V = \top$} \\
+			\text{'BOTTOM'}, & \text{ if $V = \bot$}.
+		\end{cases}
+	\end{aligned}
+\end{equation}
+
+A pathway in the Reactome Knowledgebase is a grouping of interlinked reactions where a reaction is a process that convertes input molecules and/or complexes into output molecules and/or complexes.\cite{https://reactome.org/documentation/data-model} This means that each pathway is associated with the set of proteins involved in the constituent reactions. We require as well that the data set contain the associated set of proteins:
+
+\begin{equation}
+	\begin{aligned}
+		Reactome(V) \cap \mathfrak{Proteins} = \\
+		\begin{cases}
+			\text{Proteins in V}, & \text{ if $V \notin \{\top, \bot\}$} \\
+			\mathfrak{Proteins}, & \text{ if $V = \top$} \\
+			\emptyset , & \text{ if $V = \bot$}.
+		\end{cases}
+	\end{aligned}
+\end{equation}
+
+Finally, a pathway contains all of the reactions constituting its child pathways. Thus for two vertices $V, V'$ where $V'$ is a child of $V$, we find:
+
+\begin{equation}
+(Reactome(V') \cap \mathfrak{Proteins}) \subseteq (Reactome(V) \cap \mathfrak{Proteins}).
+\end{equation}
+
+\subsection{Paths}
+
+Our analysis of the Reactome graph is built around a particular graph structure called a \textit{path}. A path is any sequence of vertices beginning with a root vertex and ending with a leaf vertex where each vertex (excepting the first, root vertex in the sequence) is a child of the preceding vertex together with the corresponding edges indicating the parent-child relationship. We illustrate the set of all paths in $\mathfrak R_L$ using the toy model in Fig. \ref{figure:lattice_paths}.
+
+We can also think of a path in terms of the sequence of pathways corresponding to the vertices in the path. An example path with root, lineage and leaf vertices explicitly indicated is:\\
+
+\noindent TOP Universal Pathway \textbf{(Root)} \\
+\setcounter{ctr}{0}
+\newcommand{\dataval}{example_crosstalk_lattice_path_id\the\numexpr\value{ctr}\relax}
+\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_crosstalk_lattice_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Lineage)}
+\let\dataval\undefined \\
+\forloop{ctr}{1}{\value{ctr} < 6}{
+	\newcommand{\dataval}{example_crosstalk_lattice_path_id\the\numexpr\value{ctr}\relax}
+	\var{\dataval}
+	\let\dataval\undefined
+	\newcommand{\dataval}{example_crosstalk_lattice_path_name\the\numexpr\value{ctr}\relax}
+	\var{\dataval}
+	\let\dataval\undefined \\
+}
+BOTTOM Empty Pathway \textbf{(Leaf)} \\
+
+Pathways are groupings of interlinked reactions. At the reaction level, we can interpret a path as a process of zooming into smaller and smaller sets of reactions. As we are more specifically interested in the proteins associated with the reactions, the path is a zooming through smaller and smaller sets of proteins. That is, for a path $\Pi \subseteq \mathfrak R_L$ with a vertex sequence $V_0, V_1, ..., V_N$, we observe:
+
+\begin{equation}
+	\begin{aligned}
+		\mathfrak{Proteins} = Reactome(V_0) \cap \mathfrak{Proteins} \\
+		\supseteq Reactome(V_1) \cap \mathfrak{Proteins} \\
+		... \\
+		\supseteq Reactome(V_N) \cap \mathfrak{Proteins} = \emptyset.
+	\end{aligned}
+\end{equation}
+
+\subsection{Decomposition of the Reactome Lattice}
+
+We can think of the Reactome lattice $\mathfrak R_L$ as a set of paths together with a procedure for determining which vertices are shared by multiple paths in the lattice structure. We define a \textit{crosstalk vertex} to be any non-$\bot$ vertex having more than one parent. We can then decompose the lattice $\mathfrak R_L$ into two lattices. We do this by first decomposing the set of paths making up $\mathfrak R_L$ into two sets \textemdash the set of all paths not containing crosstalk vertices and the set of paths containing crosstalk vertices. We can then construct two lattices from the two sets of paths using the procedure of identifying vertices within the lattice that we have assumed given. We call the lattice constructed from paths not containing crosstalk vertices the \textit{trees lattice}, and the lattice constructed from paths containing crosstalk vertices the \textit{crosstalk lattice}. We define a \textit{tree} to be a graph having exactly one root vertex. We find that if we take the trees lattice and remove the $\top$ and $\bot$ vertices together with any edges involving those vertices that we end up with a set of trees. At the end of this procedure we are left with a set of trees and a crosstalk lattice. We illustrate the end result of this process of decomposition for the toy model in Fig. \ref{figure:trees_and_crosstalk_lattice}.
+
+\let\dataval\undefined
+
+\setcounter{ctr}{0}
+\newcommand{\dataval}{example_signal_transduction_tree_path_id\the\numexpr\value{ctr}\relax}
+
+The trees and crosstalk lattice may be further decomposed into paths as above. We illustrate this decomposition into paths in Fig. \ref{figure:tree_and_crosstalk_lattice_paths} We give two example paths from the trees we have derived. The first is a path from the \var{\dataval} tree: \\
+
+\let\dataval\undefined
+
+\setcounter{ctr}{0}
+\newcommand{\dataval}{example_signal_transduction_tree_path_id\the\numexpr\value{ctr}\relax}
+\noindent\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_signal_transduction_tree_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Root)}
+\let\dataval\undefined \\
+\setcounter{ctr}{1}
+\newcommand{\dataval}{example_signal_transduction_tree_path_id\the\numexpr\value{ctr}\relax}
+\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_signal_transduction_tree_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Lineage)}
+\let\dataval\undefined \\
+\forloop{ctr}{2}{\value{ctr} < 4}{
+	\newcommand{\dataval}{example_signal_transduction_tree_path_id\the\numexpr\value{ctr}\relax}
+	\var{\dataval}
+	\let\dataval\undefined
+	\newcommand{\dataval}{example_signal_transduction_tree_path_name\the\numexpr\value{ctr}\relax}
+	\var{\dataval}
+	\let\dataval\undefined \\
+}
+\setcounter{ctr}{4}
+\newcommand{\dataval}{example_signal_transduction_tree_path_id\the\numexpr\value{ctr}\relax}
+\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_signal_transduction_tree_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Leaf)} \\
+\let\dataval\undefined
+
+\setcounter{ctr}{0}
+\newcommand{\dataval}{example_disease_tree_path_name\the\numexpr\value{ctr}\relax}
+
+\noindent The second path comes from the \var{\dataval} tree: \\
+
+\let\dataval\undefined
+
+\setcounter{ctr}{0}
+\newcommand{\dataval}{example_disease_tree_path_id\the\numexpr\value{ctr}\relax}
+\noindent\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_disease_tree_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Root)}
+\let\dataval\undefined \\
+\setcounter{ctr}{1}
+\newcommand{\dataval}{example_disease_tree_path_id\the\numexpr\value{ctr}\relax}
+\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_disease_tree_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Lineage)}
+\let\dataval\undefined \\
+\forloop{ctr}{2}{\value{ctr} < 3}{
+	\newcommand{\dataval}{example_disease_tree_path_id\the\numexpr\value{ctr}\relax}
+	\var{\dataval}
+	\let\dataval\undefined
+	\newcommand{\dataval}{example_disease_tree_path_name\the\numexpr\value{ctr}\relax}
+	\var{\dataval}
+	\let\dataval\undefined \\
+}
+\setcounter{ctr}{3}
+\newcommand{\dataval}{example_disease_tree_path_id\the\numexpr\value{ctr}\relax}
+\var{\dataval}
+\let\dataval\undefined
+\newcommand{\dataval}{example_disease_tree_path_name\the\numexpr\value{ctr}\relax}
+\var{\dataval} \textbf{(Leaf)} \\
+\let\dataval\undefined
+
+\noindent As every path in a tree starts from the same root vertex, it is convenient to name each tree using the name of the root vertex. The procedure we have given decomposes $\mathfrak R_L$ into 29 trees and a single crosstalk lattice summarizing all the crosstalk in $\mathfrak R_L$. A list of all 29 trees named by root vertex (together with an entry for the crosstalk lattice) can be found in Table \ref{tab:tree_lattice_metrics}.
+
+At this point we will assume that we can obtain a good approximationg of how a drug targets the Reactome while ignoring the crosstalk lattice and proceed to only use the trees in the sequel.
+
+\subsection{Augmented Trees \& Augmented Reactome Data Function}
+
+Each vertex corresponds a pathways which consists of a set of interlinked reactions. We may then include in the data associated with each vertex the set of all proteins involved in the the corresponding set of reactions. By the construction, a child pathway contains a strict subset of the reactions of the parent pathway (i.e. the parent must have some reactions that are not in the child). This is just because there is no reason to give multiple names to the same pathway in the Reactome Knowledgebase. However, if we think of a vertex as the set of proteins involved in the reactions of the corresponding pathway, then it is possible for parent and child vertices to have the same set of proteins. We can express this for any vertex $V$ having a non-empty set of child vertices $\mathfrak V'(V)$ as:
+
+\begin{equation} \label{eq:1}
+Reactome(V) \cap \mathfrak{Proteins} \supseteq \left(\bigcup_{V' \in \mathfrak{V}'(V)} Reactome(V')\right) \cap \mathfrak{Proteins}
+\end{equation}
+
+\noindent For the purpose of simplifying definitions and carrying out calculations on the trees, we would like Eq. \ref{eq:1} to be an equality. To make this an equality we require that every protein in a non-leaf vertex must appear one of its child vertices. This allows for us to perform the later bookkeeping of drug-target interactions in terms of paths as we have defined tham rather than forumulate a more complicated bookkeeping system where we have to account for reactions in non-leaf vertices that do not appear in leaves. We can accomplish this by constructing a set of 29 augmented trees from the 29 trees together with an augmented verson of $Reactome(\cdot)$.
+
+Given a tree $T$, we construct the augmented tree $T^{aug}$ and augmented function $Reactome^{aug}(V)$ by first making a copy of the tree. We then do the following: \\
+
+\noindent For each vertex $V \in T$ we:
+
+\noindent 1. Identify the set of all child vertices $\mathfrak V'(V)$.
+
+\noindent 2. If $\mathfrak V'(V) \neq \emptyset$ calculate the set
+
+$\Delta(V) = \left( Reactome(V) - \bigcup_{V' \in \mathfrak{V}'(V)} Reactome(V') \right) \cap \mathfrak{Proteins}$
+
+\noindent 3. If $\Delta(V)$ is not empty we add an augment vertex $V^{aug}$ to the tree such that $V^{aug}$ is a child vertex of the vertex $V$. We further require:
+
+$Reactome^{aug}(V^{aug}) \cap \mathfrak{Proteins} = \Delta(V)$ \\
+
+\noindent The outcome of this procedure is illustrated for the toy model in Fig. \ref{figure:augmented_trees}. The corresponding paths are illustrated in Fig. \ref{figure:augmented_tree_paths}. In constructing Fig.\ref{figure:augmented_tree_paths} we assumed that every non-leaf vertex with only one child had proteins that were not present in the child vertices. This results in a doubling of the number of paths. The large ratio of regular paths to augment paths is due to the small number of regular paths. In practice, the ratio is much more favorable to regular paths as can be seen by comparing Tables \ref{tab:tree_lattice_metrics} and \ref{tab:augmented_tree_metrics}
+
+\section{Metrics}
+\label{section:metrics}
+
+At this point it is worthwhile to recall the original problem. The oncologist has identified a particular gene that they would like to target using a drug, and there are multiple candidate drugs that target the gene. The oncologist would like to choose from among the drugs the drug that has the greatest specificity and fewest off-target effects. In terms of the previous decompostion, this amounts to constructing for each drug the set of subtrees containing only those vertices containing proteins targeted by the drug, and comparing the sets to arrive at the best choice. Clearly this comparison is going to be a difficult task. We must therefore constuct metrics that measure the sizes and shapes of the subtrees in each set thereby reducing each set of subtrees to a set of metric values. Values for the metrics developed in this section are given for the regular tree and the crosstalk lattice in Table \ref{tab:tree_lattice_metrics} and for the augmented tree in Table \ref{tab:augmented_tree_metrics}. The crosstalk lattice information has been retained in Table \ref{tab:tree_lattice_metrics} to provide information as to how the crosstalk lattice compares in size to the trees.
+
+\subsection{Tree Structure Metrics}
+
+The first set of metrics that we construct aim to provide the clinician with a asummary of the geometric or topological shape or structure of a tree.
+
+\subsubsection{Tree Size Metrics}
+
+We identify three metrics of the size of the tree. The first is the \textit{number of lineages} $|L|$ which is the number of child vertices of the root vertex of the tree. The second is the \textit{number of paths} $|\Pi|$ which is the total number of paths comprising the tree. The third is the \textit{number of vertices} $|V|$ which is the total number of vertices comprising the tree. 
+
+\subsubsection{Tree Conjointness Metric}
+
+The next property of a tree that is of interest for us is the conjointness of the tree. We motivate the idea of conjointness in the following way. Given a set of paths $\{\Pi\}$ there are a number of trees that can be built using these paths. Each of these trees has its own number of vertices $|V|$. Clearly there is are minimum and maximum possible values of $|V|$ corresponding to trees that can be constructed using the paths as well as a range of $|V|$ for possible trees in between. We construct our conjointness metric with the aim of providing information as to where the actual tree being considered falls in this range given the set of paths $\{\Pi\}$ that make up the tree.
+
+We recall that the depth of a path is the total number of edges in the path. The \textit{total path depth} $D$ is the number we arrive at by summing the path depths of all the paths in the tree:
+
+\begin{equation}
+D = \sum_{\Pi \in \{\Pi\}} d(\Pi).
+\end{equation}
+
+We begin by construcingt the \textit{vertex ceiling} $C$. The vertex ceiling is the number of vertices in the largest tree that can contain all the paths in the original tree. The number of vertices in this tree is:
+
+\begin{equation}
+C = D + 1.
+\end{equation}
+
+The \textit{maximum path length} $M$ which is the depth of the longest path in the tree.
+
+Next we construct the \textit{vertex floor} $F$. The vertex floor is then the number of vertices in the smallest tree that can contain all the paths in the original tree. The number of vertices in this tree is:
+
+\begin{equation}
+F = M + |\Pi| .
+\end{equation}
+
+\noindent As expected $F \leq |V| \leq C$.
+
+We can now construct the conjointness metric $\eta$ as:
+
+\begin{equation}\label{eq:2}
+\eta = 
+	\begin{cases}
+		\frac{|V| - F}{C-F} & \text{if $C \neq F$} \\
+		\text{undefined} & \text{if $C = F$}
+	\end{cases}
+\end{equation}
+
+\noindent The ceiling, floor, and conjointness of a set of paths are illustrated in Fig. \ref{figure:conjointness_trees}.
+
+\subsection{Drug Coverage Metrics}
+
+We think of drug coverage in terms of how the pathways that are targeted by a drug relate to those pathways that are not targeted. We are given an augmented tree with size metrics $P_T$, $|L_T|$, and $|\Pi_T|$ and a conjointness metric $\eta_T$, and a protein tree with size metrics $|L_P|$, and $|\Pi_P|$ and a conjointness metric $\eta_P$. We are also given the subtree consisting of vertices containing proteins that are targeted by the drug under consideration with size metrics $P_D$, $|L_D|$, and $|\Pi_D|$ and a conjointness metric $\eta_D$e. We quantify this relationship in terms of a set of metrics which measure the fraction of an augmeted tree that is present in the subtree according to the metrics we ahve developed.
+
+The first metric is the fraction of proteins in the augmented tree that are targeted by the drug. This is the \textit{protein coverage metric} $K_P$:
+
+\begin{equation}
+K_P = \frac{P_D}{P_T}.
+\end{equation}
+
+The second metric is the fraction of lineage pathways in the augmented tree that are targeted by the drug. This is the \textit{tree lineage coverage metric} $K_|L|$:
+
+\begin{equation}
+K_{|L|} = \frac{|L_D|}{|L_T|}.
+\end{equation}
+
+The third metric is the fraction of lineage pathways in the augmented tree that are targeted by the drug. This is the \textit{protein lineage coverage metric} $k_|L|$:
+
+\begin{equation}
+k_{|L|} = \frac{|L_D|}{|L_P|}.
+\end{equation}
+
+The fourth metric is the fraction of paths in the augmented tree that are targeted by the drug. This is the \textit{tree path coverage metric} $K_|\Pi|$:
+
+\begin{equation}
+K_{|\Pi|} = \frac{|\Pi_D|}{|\Pi_T|}.
+\end{equation}
+
+The fifth metric is the fraction of paths in the augmented tree that are targeted by the drug. This is the \textit{protein path coverage metric} $k_|\Pi|$:
+
+\begin{equation}
+k_{|\Pi|} = \frac{|\Pi_D|}{|\Pi_P|}.
+\end{equation}
+
+\newcounter{ctr_0}
+\setcounter{ctr_0}{26}
+
+\newcommand{\vAA}{protein_0_fraction_val\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vAB}{protein_1_fraction_val\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vAC}{protein_2_fraction_val\the\numexpr\value{ctr_0}\relax}
+
+\newcommand{\vBA}{augmented_lattice_complexity_metrics_P\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vBB}{drug_0_lattice_complexity_metrics_P\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vBC}{drug_1_lattice_complexity_metrics_P\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vBD}{drug_2_lattice_complexity_metrics_P\the\numexpr\value{ctr_0}\relax}
+
+\newcommand{\vCA}{augmented_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vCB}{protein_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vCC}{drug_0_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vCD}{drug_1_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vCE}{drug_2_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_0}\relax}
+
+\newcommand{\vDA}{augmented_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vDB}{protein_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vDC}{drug_0_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vDD}{drug_1_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vDE}{drug_2_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_0}\relax}
+
+\newcommand{\vEA}{augmented_lattice_complexity_metrics_eta\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vEB}{protein_lattice_complexity_metrics_eta\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vEC}{drug_0_lattice_complexity_metrics_eta\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vED}{drug_1_lattice_complexity_metrics_eta\the\numexpr\value{ctr_0}\relax}
+\newcommand{\vEE}{drug_2_lattice_complexity_metrics_eta\the\numexpr\value{ctr_0}\relax}
+
+\newcommand{\wAA}{calculation_signal_transduction_augmented_tree_drug_0_lineage_percentage}
+\newcommand{\wAD}{calculation_signal_transduction_augmented_tree_drug_1_lineage_percentage}
+\newcommand{\wAF}{calculation_signal_transduction_augmented_tree_drug_2_lineage_percentage}
+\newcommand{\wAB}{calculation_signal_transduction_protein_drug_0_lineage_percentage}
+\newcommand{\wAE}{calculation_signal_transduction_protein_drug_1_lineage_percentage}
+\newcommand{\wAG}{calculation_signal_transduction_protein_drug_2_lineage_percentage}
+\newcommand{\wAC}{calculation_signal_transduction_augmented_tree_protein_lineage_percentage}
+
+\newcommand{\wBA}{calculation_signal_transduction_augmented_tree_drug_0_path_percentage}
+\newcommand{\wBD}{calculation_signal_transduction_augmented_tree_drug_1_path_percentage}
+\newcommand{\wBF}{calculation_signal_transduction_augmented_tree_drug_2_path_percentage}
+\newcommand{\wBB}{calculation_signal_transduction_protein_drug_0_path_percentage}
+\newcommand{\wBE}{calculation_signal_transduction_protein_drug_1_path_percentage}
+\newcommand{\wBG}{calculation_signal_transduction_protein_drug_2_path_percentage}
+\newcommand{\wBC}{calculation_signal_transduction_augmented_tree_protein_path_percentage}
+
+\newcommand{\wNA}{calculation_signal_transduction_drug_0_vertices_per_path}
+\newcommand{\wNB}{calculation_signal_transduction_drug_1_vertices_per_path}
+\newcommand{\wNC}{calculation_signal_transduction_drug_2_vertices_per_path}
+
+\newcommand{\wOA}{calculation_signal_transduction_drug_0_avg_path_depth}
+\newcommand{\wOB}{calculation_signal_transduction_drug_1_avg_path_depth}
+\newcommand{\wOC}{calculation_signal_transduction_drug_2_avg_path_depth}
+
+\newcommand{\wPA}{calculation_signal_transduction_drug_0_ceiling_vertices_per_path}
+\newcommand{\wPB}{calculation_signal_transduction_drug_1_ceiling_vertices_per_path}
+\newcommand{\wPC}{calculation_signal_transduction_drug_2_ceiling_vertices_per_path}
+
+\newcommand{\wQA}{calculation_signal_transduction_drug_0_floor_vertices_per_path}
+\newcommand{\wQB}{calculation_signal_transduction_drug_1_floor_vertices_per_path}
+\newcommand{\wQC}{calculation_signal_transduction_drug_2_floor_vertices_per_path}
+
+\newcommand{\wSA}{calculation_signal_transduction_drug_0_max_path_depth}
+\newcommand{\wSB}{calculation_signal_transduction_drug_1_max_path_depth}
+\newcommand{\wSC}{calculation_signal_transduction_drug_2_max_path_depth}
+
+\newcounter{ctr_1}
+\setcounter{ctr_1}{10}
+
+\newcommand{\xAA}{protein_0_fraction_val\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xAB}{protein_1_fraction_val\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xAC}{protein_2_fraction_val\the\numexpr\value{ctr_1}\relax}
+
+\newcommand{\xBA}{augmented_lattice_complexity_metrics_P\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xBB}{drug_0_lattice_complexity_metrics_P\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xBC}{drug_1_lattice_complexity_metrics_P\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xBD}{drug_2_lattice_complexity_metrics_P\the\numexpr\value{ctr_1}\relax}
+
+\newcommand{\xCA}{augmented_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xCB}{protein_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xCC}{drug_0_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xCD}{drug_1_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xCE}{drug_2_lattice_complexity_metrics_|L|\the\numexpr\value{ctr_1}\relax}
+
+\newcommand{\xDA}{augmented_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xDB}{protein_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xDC}{drug_0_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xDD}{drug_1_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xDE}{drug_2_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr_1}\relax}
+
+\newcommand{\xEA}{augmented_lattice_complexity_metrics_eta\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xEB}{protein_lattice_complexity_metrics_eta\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xEC}{drug_0_lattice_complexity_metrics_eta\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xED}{drug_1_lattice_complexity_metrics_eta\the\numexpr\value{ctr_1}\relax}
+\newcommand{\xEE}{drug_2_lattice_complexity_metrics_eta\the\numexpr\value{ctr_1}\relax}
+
+\newcommand{\yAA}{calculation_disease_augmented_tree_drug_0_lineage_percentage}
+\newcommand{\yAD}{calculation_disease_augmented_tree_drug_1_lineage_percentage}
+\newcommand{\yAF}{calculation_disease_augmented_tree_drug_2_lineage_percentage}
+\newcommand{\yAB}{calculation_disease_protein_drug_0_lineage_percentage}
+\newcommand{\yAE}{calculation_disease_protein_drug_1_lineage_percentage}
+\newcommand{\yAG}{calculation_disease_protein_drug_2_lineage_percentage}
+\newcommand{\yAC}{calculation_disease_augmented_tree_protein_lineage_percentage}
+
+\newcommand{\yBA}{calculation_disease_augmented_tree_drug_0_path_percentage}
+\newcommand{\yBD}{calculation_disease_augmented_tree_drug_1_path_percentage}
+\newcommand{\yBF}{calculation_disease_augmented_tree_drug_2_path_percentage}
+\newcommand{\yBB}{calculation_disease_protein_drug_0_path_percentage}
+\newcommand{\yBE}{calculation_disease_protein_drug_1_path_percentage}
+\newcommand{\yBG}{calculation_disease_protein_drug_2_path_percentage}
+\newcommand{\yBC}{calculation_disease_augmented_tree_protein_path_percentage}
+
+\newcommand{\yNA}{calculation_disease_drug_0_vertices_per_path}
+\newcommand{\yNB}{calculation_disease_drug_1_vertices_per_path}
+\newcommand{\yNC}{calculation_disease_drug_2_vertices_per_path}
+
+\newcommand{\yOA}{calculation_disease_drug_0_avg_path_depth}
+\newcommand{\yOB}{calculation_disease_drug_1_avg_path_depth}
+\newcommand{\yOC}{calculation_disease_drug_2_avg_path_depth}
+
+\newcommand{\yPA}{calculation_disease_drug_0_ceiling_vertices_per_path}
+\newcommand{\yPB}{calculation_disease_drug_1_ceiling_vertices_per_path}
+\newcommand{\yPC}{calculation_disease_drug_2_ceiling_vertices_per_path}
+
+\newcommand{\yQA}{calculation_disease_drug_0_floor_vertices_per_path}
+\newcommand{\yQB}{calculation_disease_drug_1_floor_vertices_per_path}
+\newcommand{\yQC}{calculation_disease_drug_2_floor_vertices_per_path}
+
+\newcommand{\ySA}{calculation_disease_drug_0_max_path_depth}
+\newcommand{\ySB}{calculation_disease_drug_1_max_path_depth}
+\newcommand{\ySC}{calculation_disease_drug_2_max_path_depth}
+
+\section{Empirical Studies}
+\label{sec:empirical_studies}
+
+We illustrate the use of the metrics by examining the performance of the drugs \drugA{}, \drugB{}, and \drugC{} in targeting \gene{} (epiderimal growth factor receptor) which regulates cell growth, division, and survival. We consider 2 of the 29 trees dervied from the Reactome graph \textemdash the \rootB{} tree and the \rootA{} tree. These are the trees with the \rootB{} pathway and \rootA{} pathway as root pathways, respectively. The full list of trees named by root pathway can be found in Table \ref{tab:tree_lattice_metrics} giving an idea what portion of the full Reactome is represented by the \rootB{} and \rootA{} trees. We are interested in how the metrics indicate the specificity and of-target effects of the 3 drugs.
+
+For each drug and for each of the two trees we construct a subtree by identifying all the proteins targeted by the drug. In our construction we only include targets that have an evidence level of III in the Cancer Targetome, that is the drug-target relationship must have supporting literature information and at least one reported experimental binding value. Following \cite{BLUCHER20171085}, the maximum assay value was chosen to be 100 nM restricting the data to reactions that are relevant to drug binding \cite{10.1038/nbt1228, 10.1016/j.chembiol.2016.05.016}. The data for this analysis are given in 4 tables. In Table \ref{tab:gene_tree} we give the metrics for subtrees constructed using only those pathways involving \gene{}. In Tables \ref{tab:drugA}, \ref{tab:drugB}, and \ref{tab:drugC}, we give the metrics for the subtrees constructed for \drugA{}, \drugB{}, and \drugC{}, respectively.
+
+\subsection{Signal Transduction Tree}
+
+The first tree dervided from the Reactome graph that we analyze is the \rootB{} tree (i.e. the tree with the \rootB{} pathway as the root pathway) which has as a natural function the prevention of cancer and is iinhibited in cancer. This is also the tree for which \gene{} contains the most paths.
+
+The simplest way to look at this would be to see if any of the proteins targeted by the either of the drugs appear in the biochemical reactions making up the tree. We assign the tree a value of $1$ if it contains reactions involving any of the proteins targeted by the drug and a value of $0$ otherwise. In this case, all three drugs target proteins in the \rootB{} tree and thus we assign both drugs a value of $1$. The most we can conclude from this information is that either drug is an equally good choice for treatment. 
+
+We might improve on this by looking at what fraction of the proteins present in the tree are targeted by the drugs. The \rootB{} tree consists of $P = \var{\vBA}$ proteins. We find that \drugA{} targets $K_{P} = \var\vAA$ of the proteins, \drugB{} targets $K_{P} = \var\vAB$, and \drugC{} targets $K_{P} = \var\vAC$. Thus, ordering the drugs from greatest to least specificity we find \drugC{}, \drugB{}, \drugA{}.
+
+The first way we looked at the targeting of the tree by a drug was by simply asking whether the drug targeted any proteins in the tree. However this approach ignores available information about the reactions making up the tree and how they might be related to each other. We can try to obtain more information about how a drug targets the tree by grouping the reactions in the tree into disjoint sets and identifying which sets contain proteins targeted by the drug. The tree structure provides a guide for dividing the reactions into conceptually meaningful sets. We proceed by using the tree to construct the disjoint sets and then look at which sets are targeted by the drug.
+
+The coarsest-grained division of reactions into sets that is available to us that obtained by looking at the lineage pathways of the tree. The \rootB{} tree consists of $|L| = \var{\vCA}$ lineages, while the \gene{} tree consists of $|L| = \var{\vCB}$ lineages. The \drugA{} tree consists of $|L| = \var{\vCC}$ lineages, the \drugB{} tree of $|L| = \var{\vCD}$, and the \drugC{} tree of $L = \var{\vCE}$. \drugA{} targets $K_{|L|} = \var{\vCC}/\var{\vCA}$ = $\var{\wAA}$ of the lineages in the augmented tree, \drugB{} targets $K_{|L|} = \var{\vCD}/\var{\vCA}$ = $\var{\wAD}$ of the lineages, and \drugC{} targets $K_{|L|} = \var{\vCE}/\var{\vCA}$ = $\var{\wAF}$ of the lineages. \drugA{} targets $k_{|L|} = \var{\vCC}/\var{\vCB}$ = $\var{\wAB}$ of the lineages in the protein tree, \drugB{} targets $k_{|L|} = \var{\vCD}/\var{\vCB}$ = $\var{\wAE}$ of the lineages, and \drugC{} targets $k_{|L|} = \var{\vCE}/\var{\vCB}$ = $\var{\wAG}$ of the lineages. Thus, ordering the drugs from greatest to least specificity we find \drugC{}, \drugB{}, \drugA{}.
+
+The finest-grained division of reactions into sets is at the level of leaf pathways. In the analysis of the tree that we have carried out, every leaf is associated with a unique path, so we can proceed by looking at paths. The \rootB{} tree consists of $|\Pi| = \var{\vDA}$ paths, while the \drugA{} tree consists of $|\Pi| = \var{\vDC}$, the \drugB{} tree of $|\Pi| = \var{\vDD}$ paths, and the \drugC{} tree of $|\Pi| = \var{\vDE}$ paths. \drugA{} targets $K_{|\Pi|} = \var{\vDC}/\var{\vDA}$ = $\var{\wBA}$ of the paths in the augmented tree, \drugB{} targets $K_{|\Pi|} =\var{\vDD}/\var{\vDA}$ = $\var{\wBD}$ of the paths, and \drugC{} targets $K_{|\Pi|} =\var{\vDE}/\var{\vDA}$ = $\var{\wBF}$ of the paths. \drugA{} targets $k_{|\Pi|} = \var{\vDC}/\var{\vDB}$ = $\var{\wBB}$ of the paths in the protein tree, \drugB{} targets $k_{|\Pi|} =\var{\vDD}/\var{\vDB}$ = $\var{\wBE}$ of the paths, and \drugC{} targets $k_{|\Pi|} =\var{\vDE}/\var{\vDB}$ = $\var{\wBG}$ of the paths. Thus, ordering the drugs from greatest to least specificity we find \drugC{}, \drugA{}, \drugB{}.
+
+The conjointness metric $\eta$ as provides information about how quickly the tree branches out from the lineage vertices to the leaf vertices. Conjointness values closer to $1$ indicate that the bulk of the branching out happens closer to the lineage vertices while values closer to $0$ indicate that the bulk of the branching outn happens closer to the leaf vertices. The \rootB{} tree branches out from $|L| = \var{\vCA}$ to $|\Pi| = \var{\vDA}$ with a conjointness of $\eta = \var{\vEA}$, while the \drugA{} tree branches out from $|L| = \var{\vCC}$ to $|\Pi| = \var{\vDC}$ with a conjointness of $\eta = \var{\vEC}$, \drugB{} tree branches out from $|L| = \var{\vCD}$ to $|\Pi| = \var{\vDD}$ with a conjointness of $\eta = \var{\vED}$, and the \drugC{} tree branches out from $|L| = \var{\vCE}$ to $|\Pi| = \var{\vDE}$ with a conjointness of $\eta = \var{\vEE}$. We see that \rootB{} tree does most of its branching out nearer to the leaves, while the drugs do most of their branching earlier on.
+
+\subsection{Disease Tree}
+
+The second tree dervided from the Reactome graph that we analyze is the \rootA{} tree (i.e. the tree with the \rootA{} pathway as the root pathway). We proceed with the same analysis as we carried out for the \rootB{} tree. 
+
+We again begin by looking to see if any of the proteins targeted by the either of the drugs appear in the biochemical reactions making up the tree. In this case, all three drugs target proteins in the \rootA{} tree and thus we assign both drugs a value of $1$. The most we can conclude from this information is that either drug is an equally good choice for treatment. 
+
+We again move by looking at what fraction of the proteins present in the tree are targeted by the drugs. The \rootA{} tree consists of $P = \var{\vBA}$ proteins. We find that \drugA{} targets $K_{P} = \var\xAA$ of the proteins, \drugB{} targets $K_{P} = \var\xAB$, and \drugC{} targets $K_{P} = \var\xAC$. Thus, ordering the drugs from greatest to least specificity we find \drugC{}, \drugB{}, \drugA{}.
+
+jWe again proceed to lookin at the lineage pathways of the tree. The \rootA{} tree consists of $L = \var{\xCA}$ lineages, while the \gene{} tree consists of $|L| = \var{\xCB}$ lineages. The \drugA{} tree consists of $L = \var{\xCC}$ lineages, the \drugB{} tree of $L = \var{\xCD}$, and the \drugC{} tree of $L = \var{\xCE}$. \drugA{} targets $K_{|L|} = \var{\xCC}/\var{\xCA}$ = $\var{\yAA}$ of the lineages in the augmented tree, \drugB{} targets $K_{|L|} = \var{\xCD}/\var{\xCA}$ = $\var{\yAD}$ of the lineages, and \drugC{} targets $K_{|L|} = \var{\xCE}/\var{\xCA}$ = $\var{\yAF}$ of the lineages. Thus drugs \drugB{} and \drugC{} have the same and lowest specificity while \drugA{} has less specificity. \drugA{} targets $k_{|L|} = \var{\xCC}/\var{\xCB}$ = $\var{\yAB}$ of the lineages in the protein tree, \drugB{} targets $k_{|L|} = \var{\xCD}/\var{\xCB}$ = $\var{\yAE}$ of the lineages, and \drugC{} targets $k_{|L|} = \var{\xCE}/\var{\xCB}$ = $\var{\yAG}$ of the lineages. Thus drugs \drugB{} and \drugC{} have the same and lowest specificity while \drugA{} has less specificity.
+
+We conntinue by looking again at the level of leaf pathways. The \rootA{} tree consists of $|\Pi| = \var{\xDA}$ paths, while the \drugA{} tree consists of $|\Pi| = \var{\xDC}$, the \drugB{} tree of $|\Pi| = \var{\xDD}$ paths, and the \drugC{} tree of $|\Pi| = \var{\xDE}$ paths. \drugA{} targets $K_{|\Pi|} = \var{\xDC}/\var{\xDA}$ = $\var{\yBA}$ of the paths in the augmented tree, \drugB{} targets $K_{|\Pi|} =\var{\xDD}/\var{\xDA}$ = $\var{\yBD}$ of the paths, and \drugC{} targets $K_{|\Pi|} =\var{\xDE}/\var{\xDA}$ = $\var{\yBF}$ of the paths. \drugA{} targets $k_{|\Pi|} = \var{\xDC}/\var{\xDB}$ = $\var{\yBB}$ of the paths in the protein tree, \drugB{} targets $k_{|\Pi|} =\var{\xDD}/\var{\xDB}$ = $\var{\yBE}$ of the paths, and \drugC{} targets $k_{|\Pi|} =\var{\xDE}/\var{\xDB}$ = $\var{\yBG}$ of the paths.Thus, ordering the drugs from greatest to least specificity we find \drugC{}, \drugB{}, \drugA{}.
+
+Finally, we look again at the conjointness. The \rootA{} tree branches out from $|L| = \var{\xCA}$ to $|\Pi| = \var{\xDA}$ with a conjointness of $\eta = \var{\xEA}$, while the \drugA{} tree branches out from $|L| = \var{\xCC}$ to $|\Pi| = \var{\xDC}$ with a conjointness of $\eta = \var{\xEC}$, \drugB{} tree branches out from $|L| = \var{\xCD}$ to $|\Pi| = \var{\xDD}$ with a conjointness of $\eta = \var{\xED}$, and the \drugC{} tree branches out from $|L| = \var{\xCE}$ to $|\Pi| = \var{\xDE}$ with a conjointness of $\eta = \var{\xEE}$. We see that \rootA{} tree does most of its branching out nearer to the leaves, while the drugs do most of their branching earlier on.
+
+\section{Discussion}
+
+The original problem was to characterize a drug "promiscuity", that is its targeting of multiple genes or pathways beyond those to be targeted in a specific treatment. We would like a drug to exhibit high specificity (targeting few genes or pathways beyond those that are immediately relevant) and few off-target effects. We have captured measures which provide information about these characteristics in terms of a set 29 trees that we extracted out of the Reactome graph for each of which we construct 2 metrics, $|L|$ and $|\Pi|$, that characterize the size of the tree, a metric, $\eta$, that characterizes the shape of a tree, and 4 metrics, $K_{|L|}$, $k_{|L|}$, $K_{|\Pi|}$, and $k_{|\Pi|}$, which express the fraction of a tree that is targeted by the drug. We use the two metrics, $|L|$ and $|\Pi|$, to provide an indication of the size of the original tree and how it compares to the other 28 trees in size, and to use the 4 metrics, $K_{|L|}$, $k_{|L|}$, $K_{|\Pi|}$, and $k_{|\Pi|}$, to indicate what fraction of the tree is being tageted by the drug. The remaining metric, $\eta$, provides the oncologist with more fine-grained information about the tree structure that may prove useful. In doing so, we have reduced the large and complex Reactome graph and information about drug-target interactions to a more manageable set of metric values that admit straightforward numerical comparisons. The number of metrics is nevertheless still quite large and likely the oncologist will find, using our metrics, that a situation may arise where one candidate drug exhibits higher specificity on some set of trees, while another candidate exhibits higher specificity on another. This sort of problem must be resolved through some scheme of weighing the relative importance of the trees that is beyond the scope of the present work.
+
+\printbibliography
+
+\pagebreak
+	
+\begin{figure}
+	\begin{center}
+		\caption{\\Toy Model Lattice}\label{figure:toy_model_lattice}	
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOP) {$\top$};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V1) [below left =of TOP] {V1};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V2) [below =of TOP] {V2};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V3) [below right =of TOP] {V3};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V4) [below =of V1] {V4};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V5) [below =of V2] {V5};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V6) [below =of V3] {V6};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V7) [below left =of V4] {V7};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V8) [below =of V4] {V8};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V9) [below =of V5] {V9};
+			 \node [circle, fill=frenchrose, draw=black, minimum size = 1cm] (V10) [below =of V6] {V10};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOM) [below =of V9] {$\bot$};
+			 \path (TOP) edge (V1);
+			 \path (TOP) edge (V2);
+			 \path (TOP) edge (V3);
+			 \path (V1) edge (V4);
+			 \path (V2) edge (V5);
+			 \path (V3) edge (V6);
+			 \path (V4) edge (V7);
+			 \path (V4) edge (V8);
+			 \path (V5) edge (V9);
+			 \path (V5) edge (V10);
+			 \path (V6) edge (V10);
+			 \path (V7) edge (BOTTOM);
+			 \path (V8) edge (BOTTOM);
+			 \path (V9) edge (BOTTOM);
+			 \path (V10) edge (BOTTOM);
+		\end{tikzpicture}
+		\floatfoot{A simple toy lattice. The blue vertex is the root vertex, the brown vertices are lineage vertices, the green vertex is the leaf vertex, the red vertex is a crosstalk vetex, the remain vertices are white. The edges are indicated by the arrows pointing from parent vertex to child vertex.}
+	 \end{center}
+\end{figure}
+
+\begin{figure}
+	\caption{\\Toy Model Lattice Paths}\label{figure:lattice_paths}
+	\begin{center}
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPA) {$\top$};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPB) [right =of TOPA] {$\top$};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPC) [right =of TOPB] {$\top$};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPD) [right =of TOPC] {$\top$};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPE) [right =of TOPD] {$\top$};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V1A) [below=of TOPA] {V1};	`
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V1B) [below =of TOPB] {V1};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V2A) [below =of TOPC] {V2};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V2B) [below =of TOPD] {V2};		
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V3) [below =of TOPE] {V3};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V4A) [below =of V1A] {V4};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V4B) [below =of V1B] {V4};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V5A) [below =of V2A] {V5};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V5B) [below =of V2B] {V5};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V6) [below =of V3] {V6};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V7) [below =of V4A] {V7};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V8) [below =of V4B] {V8};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V9) [below =of V5A] {V9};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V10A) [below =of V5B] {V10};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V10B) [below =of V6] {V10};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOMA) [below =of V7] {$\bot$};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOMB) [below =of V8] {$\bot$};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOMC) [below =of V9] {$\bot$};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOMD) [below =of V10A] {$\bot$};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOME) [below =of V10B] {$\bot$};
+			\path (TOPA) edge (V1A);
+			\path (TOPB) edge (V1B);
+			\path (TOPC) edge (V2A);
+			\path (TOPD) edge (V2B);
+			\path (TOPE) edge (V3);
+			\path (V1A) edge (V4A);
+			\path (V1B) edge (V4B);
+			\path (V2A) edge (V5A);
+\			\path (V2B) edge (V5B);
+			\path (V3) edge (V6);
+			\path (V4A) edge (V7);
+			\path (V4B) edge (V8);
+			\path (V5A) edge (V9);
+			\path (V5B) edge (V10A);
+			\path (V6) edge (V10B);
+			\path (V7) edge (BOTTOMA);
+			\path (V8) edge (BOTTOMB);
+			\path (V9) edge (BOTTOMC);
+			\path (V10A) edge (BOTTOMD);
+			\path (V10B) edge (BOTTOME);
+		\end{tikzpicture}
+		\floatfoot{The paths for the toy lattice in Fig. \ref{figure:toy_model_lattice}. The blue vertices are the root vertices, the brown vertices are lineage vertices, the green vertices are the leaf vertices, the remaining vertices are white. The vertex V10 is not shown as a crosstalik vertex since in these graphs it has only one parent in each graph. Otherwise the vertices are colored the same as in Fig. \ref{figure:toy_model_lattice}.}
+	 \end{center}
+\end{figure}
+
+\begin{figure}
+	\caption{\\Toy Model Trees \& Crosstalk Lattice}\label{figure:trees_and_crosstalk_lattice}
+	\begin{center}
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOP) {$\top$};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V2B) [below =of TOP] {V2};
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2A) [left =of V2B] {V2};
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1) [left =of V2A] {V1};	`	
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V3) [below right =of TOP] {V3};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4) [below =of V1] {V4};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V5A) [below =of V2A] {V5};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V5B) [below =of V2B] {V5};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V6) [below =of V3] {V6};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V7) [below left =of V4] {V7};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V8) [below =of V4] {V8};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V9) [below =of V5A] {V9};
+			 \node [circle, fill=frenchrose, draw=black, minimum size = 1cm] (V10) [below =of V5B] {V10};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOM) [below =of V10] {$\bot$};
+			 \path (TOP) edge (V2B);
+			 \path (TOP) edge (V3);
+			 \path (V1) edge (V4);
+			 \path (V2A) edge (V5A);
+\			 \path (V2B) edge (V5B);
+			 \path (V3) edge (V6);
+			 \path (V4) edge (V7);
+			 \path (V4) edge (V8);
+			 \path (V5A) edge (V9);
+			 \path (V5B) edge (V10);
+			 \path (V6) edge (V10);
+			 \path (V10) edge (BOTTOM);
+		\end{tikzpicture}
+		\floatfoot{The trees and crosstalk lattice for the toy model in Fig. \ref{figure:toy_model_lattice}. The left and center graphs are trees while the right graph is the crosstalk lattice. The blue vertices are the root vertices, the brown vertices are lineage vertices, the green vertices are the leaf vertex, the red vertex is a crosstalk vetex, the remaining vertices are white. The colors of the vertices differ from \ref{figure:toy_model_lattice} according to their role in the graphs shown here.}
+	 \end{center}
+\end{figure}
+
+\begin{figure}
+	\caption{\\Toy Model Tree \& Crosstalk Lattice Paths}\label{figure:tree_and_crosstalk_lattice_paths}
+	\begin{center}
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPA) {$\top$};
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (TOPB) [right =of TOPA] {$\top$};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V2B) [below =of TOP] {V2};
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2A) [left =of V2B] {V2};
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1B) [left =of V2A] {V1};	
+			 \node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1A) [left =of V1B] {V1};	`	
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V3) [below =of TOPB] {V3};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4A) [below =of V1A] {V4};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4B) [below =of V1B] {V4};
+			 \node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V5A) [below =of V2A] {V5};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V5B) [below =of V2B] {V5};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V6) [below =of V3] {V6};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V7) [below =of V4A] {V7};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V8) [below =of V4B] {V8};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V9) [below =of V5A] {V9};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V10A) [below =of V5B] {V10};
+			 \node [circle, fill=white, draw=black, minimum size = 1cm] (V10B) [below =of V6] {V10};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOMA) [below =of V10A] {$\bot$};
+			 \node [circle, fill=teagreen, draw=black, minimum size = 1cm] (BOTTOMB) [below =of V10B] {$\bot$};
+			 \path (TOPA) edge (V2B);
+			 \path (TOPB) edge (V3);
+			 \path (V1A) edge (V4A);
+			 \path (V1B) edge (V4B);
+			 \path (V2A) edge (V5A);
+\			 \path (V2B) edge (V5B);
+			 \path (V3) edge (V6);
+			 \path (V4A) edge (V7);
+			 \path (V4B) edge (V8);
+			 \path (V5A) edge (V9);
+			 \path (V5B) edge (V10A);
+			 \path (V6) edge (V10B);
+			 \path (V10A) edge (BOTTOMA);
+			 \path (V10B) edge (BOTTOMB);
+		\end{tikzpicture}
+		\floatfoot{The paths for the trees and crosstalk lattice in Fig. \ref{figure:trees_and_crosstalk_lattice}. The blue vertices are the root vertices, the brown vertices are lineage vertices, the green vertices are the leaf vertex, the remaining vertices are white. The vertex V10 is not shown as a crosstalik vertex since in these graphs it has only one parent in each graph. Otherwise the vertices are colored the same as in Fig. \ref{figure:trees_and_crosstalk_lattice}.}
+	 \end{center}
+\end{figure}
+
+\begin{figure}
+	\caption{\\Toy Model Augmented Trees}\label{figure:augmented_trees}
+	\begin{center}
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2) {V2};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1) [left =of V2] {V1};	`	
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4) [below =of V1] {V4};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V5) [below =of V2] {V5};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V7) [below left =of V4] {V7};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V8) [below =of V4] {V8};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V9) [below =of V5] {V9};
+			\node [circle, top color=burlywood, bottom color=teagreen, draw=black, minimum size = 1cm] (A1) [left =of V4] {A1};
+			\node [circle, top color=burlywood, bottom color=teagreen, draw=black, minimum size = 1cm] (A2) [right =of V5] {A2};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (A3) [right =of V9] {A3};
+			\path (V1) edge (V4);
+			\path (V2) edge (V5);
+			\path (V4) edge (V7);
+			\path (V4) edge (V8);
+			\path (V5) edge (V9);
+			\path (V1) edge (A1);
+			\path (V2) edge (A2);
+			\path (V5) edge (A3);
+		\end{tikzpicture}
+		\floatfoot{The augmented trees for the trees in Fig. \ref{figure:trees_and_crosstalk_lattice}. The augment vertices are labeled A1, A2, and A3. The blue vertices are the root vertices, the brown vertices are lineage vertices, the green vertices are the leaf vertices, the brown-green vertices are both lineage and leaf vertices. The colors of the non-augment vertices are the same as those in \ref{figure:trees_and_crosstalk_lattice} .}
+	 \end{center}
+\end{figure}
+
+\begin{figure}
+	\caption{\\Toy Model Augmented Tree Paths}\label{figure:augmented_tree_paths}
+	\begin{center}
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1A) {V1};	
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1B) [right =of V1A] {V1};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1C) [right =of V1B] {V1};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2A) [right =of V1C] {V2};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2B) [right =of V2A] {V2};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2C) [right =of V2B] {V2};		
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4A) [below =of V1B] {V4};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4B) [below =of V1C] {V4};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V5A) [below =of V2A] {V5};
+`			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V5B) [below =of V2B] {V5};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V7) [below =of V4A] {V7};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V8) [below =of V4B] {V8};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V9) [below =of V5A] {V9};
+			\node [circle, top color=burlywood, bottom color=teagreen, draw=black, minimum size = 1cm] (A1) [below =of V1A] {A1};
+			\node [circle, top color=burlywood, bottom color=teagreen, draw=black, minimum size = 1cm] (A2) [below =of V2C] {A2};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (A3) [below =of V5B] {A3};
+			\path (V1A) edge (A1);
+			\path (V1B) edge (V4A);
+			\path (V1C) edge (V4B);
+			\path (V2A) edge (V5A);
+			\path (V2B) edge (V5B);
+			\path (V2C) edge (A2);
+			\path (V4A) edge (V7);
+			\path (V4B) edge (V8);
+			\path (V5A) edge (V9);
+			\path (V1A) edge (A1);
+			\path (V2C) edge (A2);
+			\path (V5B) edge (A3);
+		\end{tikzpicture}
+		\floatfoot{The paths for the augmented trees in Fig. \ref{figure:augmented_trees}. The augment vertices are labeled A1, A2, and A3. The blue vertices are the root vertices, the brown vertices are lineage vertices, the green vertices are the leaf vertices, the brown-green vertices are both lineage and leaf vertices. The vertices are colored the same as in Fig. \ref{figure:augmented_trees}.}
+	 \end{center}
+\end{figure}
+
+\begin{figure}
+	\caption{\\Conjointness Illustration for a Set of 3 Paths Each Having 4 Vertices}\label{figure:conjointness_trees}
+	\begin{center}
+		\begin{tikzpicture}[-latex ,auto ,node distance = 2cm and 2cm ,on grid, semithick] [scale=.8,auto=left,every node/.style={circle,fill=blue!20}]
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V1) {V1};	
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V4) [below =of V1] {V4};`	
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V3) [left =of V4] {V3};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V5) [right =of V4] {V5};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V7) [below =of V3] {V7};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V8) [below =of V4] {V8};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V9) [below =of V5] {V9};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V11) [below =of V7] {V11};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V12) [below =of V8] {V12};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V13) [below =of V9] {V13};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V14) [right =of V13] {V14};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V15) [right =of V14] {V15};
+			\node [circle, fill=teagreen, draw=black, minimum size = 1cm] (V16) [right =of V15] {V16};
+			\node [circle, fill=white, draw=black, minimum size = 1cm] (V10) [above =of V15] {V10};
+			\node [circle, fill=burlywood, draw=black, minimum size = 1cm] (V6) [above =of V10] {V6};
+			\node [circle, fill=palecornflowerblue, draw=black, minimum size = 1cm] (V2) [above =of V6] {V2};
+			\path (V1) edge (V3);
+			\path (V1) edge (V4);
+			\path (V1) edge (V5);
+			\path (V2) edge (V6);
+			\path (V3) edge (V7);
+			\path (V4) edge (V8);
+			\path (V5) edge (V9);
+			\path (V6) edge (V10);
+			\path (V7) edge (V11);
+			\path (V8) edge (V12);
+			\path (V9) edge (V13);
+			\path (V10) edge (V14);
+			\path (V10) edge (V15);
+			\path (V10) edge (V16);
+		\end{tikzpicture}
+		\floatfoot{Conjointness illustration for a set of 3 paths each having 4 vertices. The left tree gives the tree with the largest number of vertices for the given paths. The number of vertices it has is the vertex ceiling $C = 10$. Its conjointness is $\eta = 1$. The reight tree gives the tree with the smallest number of vertices for the given paths. The number of vertices it has is the vertex floor $F = 6$. Its conjointness is $\eta = 0$. Other tree arrangements of the 3 paths would have a number o vertices between $6$ and $10$, and $0 < \eta < 1$. The blue vertices are the root vertices, the brown vertices are lineage vertices, the green vertices are the leaf vertex, the red vertex is a crosstalk vetex, the remaining vertices are white. The vertex labeling in this figure has no relationship to the vertex labeling in the previous figures.}
+	 \end{center}
+\end{figure}
+
+\pagebreak
+
+\newcommand{\maxctr}{29}
+\begin{sidewaystable}[h!]
+	\caption{Tree \& Lattice Metrics}\label{tab:tree_lattice_metrics}
+ 	\begin{center}
+		\rowcolors{1}{}{lightgray}
+		\begin{tabular}{|p{5.75cm}||p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}||p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}|}
+			\hline
+			\textbf{Tree or Lattice} & \textbf{$P$} & \textbf{$|L|$} & \textbf{$|\Pi|$} & \textbf{$|V|$} & \textbf{$D$} & \textbf{$M$} & \textbf{$C$} & \textbf{$F$} & \textbf{$\eta$} \\
+			\hline
+			\forloop{ctr}{0}{\value{ctr} < \maxctr}{
+				\newcommand{\dataval}{lattice_complexity_metrics_key\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_P\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_|L|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_|V|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_D\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_M\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_C\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_F\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} \\
+			}
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_key}
+			\var{\dataval} &
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_P}
+			&
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_|L|}
+			13 &
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_|Pi|}
+			171 &
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_|V|}
+			206 &
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_D}
+			&
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_M}
+			&
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_C}
+			&
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_F}
+			&
+			\newcommand{\dataval}{crosstalk_lattice_complexity_metrics_eta}
+			\\
+			\hline
+		\end{tabular}
+		\floatfoot{The metrics for the trees and crosstalk lattice. The metrics are defined in Sec. \ref{section:metrics}. The crosstalk lattice is included to provide an estimate of its size. It should be noted that the crosstalk lattice's lneages correspond to roots of trees. U indicates an undefined value as given in Eq. \ref{eq:2}.}
+	\end{center}
+\end{sidewaystable}
+\let\maxctr\undefined
+
+\newcommand{\maxctr}{28}
+\begin{sidewaystable}[h!]
+	\caption{Augmented Tree Metrics}\label{tab:augmented_tree_metrics}
+ 	\begin{center}
+		\rowcolors{1}{}{lightgray}
+		\begin{tabular}{|p{5.75cm}||p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}||p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}|}
+			\hline
+			\textbf{Tree or Lattice} & \textbf{$P$} & \textbf{$|L|$} & \textbf{$|\Pi|$} & \textbf{$|V|$} & \textbf{$D$} & \textbf{$M$} & \textbf{$C$} & \textbf{$F$} & \textbf{$\eta$} \\
+			\hline
+			\forloop{ctr}{0}{\value{ctr} < \maxctr}{
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_key\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_P\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|V|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_D\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_M\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_C\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_F\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} \\
+			}
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_key28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_P28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|V|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_D28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_M28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_C28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_F28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta28}
+			\var{\dataval} \\
+			\hline
+		\end{tabular}
+		\floatfoot{The metrics for the augmented trees. The metrics are defined in Sec. \ref{section:metrics}. U indicates an undefined value as given in Eq. \ref{eq:2}.}
+	\end{center}
+\end{sidewaystable}
+
+\begin{sidewaystable}[h!]
+ 	\begin{center}
+		\caption{Protein Tree Metrics (\gene{})}\label{tab:gene_tree}
+		\rowcolors{1}{}{lightgray}
+		\begin{tabular}{|p{5.75cm}||p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}||p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}|p{0.6cm}|}
+			\hline
+			\textbf{Tree or Lattice} & \textbf{$P$} & \textbf{$|L|$} & \textbf{$|\Pi|$} & \textbf{$|V|$} & \textbf{$D$} & \textbf{$M$} & \textbf{$C$} & \textbf{$F$} & \textbf{$\eta$} \\
+			\hline
+			\forloop{ctr}{0}{\value{ctr} < \maxctr}{
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_key\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_P\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_|L|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_|V|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_D\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_M\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_C\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_F\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} \\
+			}
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_key28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_P28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_|L|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_|Pi|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_|V|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_D28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_M28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_C28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_F28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_lattice_complexity_metrics_eta28}
+			\var{\dataval} \\
+			\hline
+		\end{tabular}
+		\floatfoot{The metrics for \gene{}. The metrics are defined in Sec. \ref{section:metrics}. U indicates an undefined value as given in Eq. \ref{eq:2}.}
+	\end{center}
+\end{sidewaystable}
+
+\begin{sidewaystable}[h!]
+ 	\begin{center}
+		\caption{Drug Coverage Metrics (\drugA{})}\label{tab:drugA}
+		\rowcolors{1}{}{lightgray}
+		\begin{tabular}{|p{5.75cm}||p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}||p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|}
+			\hline
+			\textbf{Tree} & \textbf{$P$} & \textbf{$|L|$} & \textbf{$|\Pi|$} & \textbf{$\eta$} & \textbf{$K_{P}$} & \textbf{$K_{|L|}$} & \textbf{$k_{|L|}$} & \textbf{$K_{|\Pi|}$} & \textbf{$k_{|\Pi|}$} & \textbf{$\eta$} \\
+			\hline
+			\forloop{ctr}{0}{\value{ctr} < \maxctr}{
+				\newcommand{\dataval}{protein_0_fraction_key\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_P\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_0_fraction_val\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_0_coverage_lineage_metrics_K\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_0_coverage_lineage_metrics_k\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_0_coverage_leaf_metrics_K\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_0_coverage_leaf_metrics_k\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_0_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} \\
+			}
+			\newcommand{\dataval}{protein_0_fraction_key28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_P28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_0_fraction_val28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_0_coverage_lineage_metrics_K28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_0_coverage_lineage_metrics_k28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_0_coverage_leaf_metrics_K28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_0_coverage_leaf_metrics_k28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_0_lattice_complexity_metrics_eta28}
+			\var{\dataval} \\
+			\hline
+		\end{tabular}
+		\floatfoot{The metrics for \drugA{}. The metrics are defined in Sec. \ref{section:metrics}. U indicates an undefined value as given in Eq. \ref{eq:2}.}
+	\end{center}
+\end{sidewaystable}
+
+\begin{sidewaystable}[h!]
+ 	\begin{center}
+		\caption{Drug Coverage Metrics (\drugB{})}\label{tab:drugB}
+		\rowcolors{1}{}{lightgray}
+		\begin{tabular}{|p{5.75cm}||p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}||p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|}
+			\hline
+			\textbf{Tree} & \textbf{$P$} & \textbf{$|L|$} & \textbf{$|\Pi|$} & \textbf{$\eta$} & \textbf{$K_{P}$} & \textbf{$K_{|L|}$} & \textbf{$k_{|L|}$} & \textbf{$K_{|\Pi|}$} & \textbf{$k_{|\Pi|}$} & \textbf{$\eta$} \\
+			\hline
+			\forloop{ctr}{0}{\value{ctr} < \maxctr}{
+				\newcommand{\dataval}{protein_1_fraction_key\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_P\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_1_fraction_val\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_1_coverage_lineage_metrics_K\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_1_coverage_lineage_metrics_k\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_1_coverage_leaf_metrics_K\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_1_coverage_leaf_metrics_k\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_1_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} \\
+			}
+			\newcommand{\dataval}{protein_1_fraction_key28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_P28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_1_fraction_val28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_1_coverage_lineage_metrics_K28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_1_coverage_lineage_metrics_k28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_1_coverage_leaf_metrics_K28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_1_coverage_leaf_metrics_k28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_1_lattice_complexity_metrics_eta28}
+			\var{\dataval} \\
+			\hline
+		\end{tabular}
+		\floatfoot{The metrics for \drugB{}. The metrics are defined in Sec. \ref{section:metrics}. U indicates an undefined value as given in Eq. \ref{eq:2}.}
+	\end{center}
+\end{sidewaystable}
+
+\begin{sidewaystable}[h!]
+ 	\begin{center}
+		\caption{Drug Coverage Metrics (\drugC{})}\label{tab:drugC}
+		\rowcolors{1}{}{lightgray}
+		\begin{tabular}{|p{5.75cm}||p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}||p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|p{1.0cm}|}
+			\hline
+			\textbf{Tree} & \textbf{$P$} & \textbf{$|L|$} & \textbf{$|\Pi|$} & \textbf{$\eta$} & \textbf{$K_{P}$} & \textbf{$K_{|L|}$} & \textbf{$k_{|L|}$} & \textbf{$K_{|\Pi|}$} & \textbf{$k_{|\Pi|}$} & \textbf{$\eta$} \\
+			\hline
+			\forloop{ctr}{0}{\value{ctr} < \maxctr}{
+				\newcommand{\dataval}{protein_2_fraction_key\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_P\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{protein_2_fraction_val\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_2_coverage_lineage_metrics_K\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_2_coverage_lineage_metrics_k\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_2_coverage_leaf_metrics_K\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_2_coverage_leaf_metrics_k\the\numexpr\value{ctr}\relax}
+				\var{\dataval} &
+				\newcommand{\dataval}{drug_2_lattice_complexity_metrics_eta\the\numexpr\value{ctr}\relax}
+				\var{\dataval} \\
+			}
+			\newcommand{\dataval}{protein_2_fraction_key28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_P28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|L|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_|Pi|28}
+			\var{\dataval} &
+			\newcommand{\dataval}{augmented_lattice_complexity_metrics_eta28}
+			\var{\dataval} &
+			\newcommand{\dataval}{protein_2_fraction_val28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_2_coverage_lineage_metrics_K28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_2_coverage_lineage_metrics_k28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_2_coverage_leaf_metrics_K28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_2_coverage_leaf_metrics_k28}
+			\var{\dataval} &
+			\newcommand{\dataval}{drug_2_lattice_complexity_metrics_eta28}
+			\var{\dataval} \\
+			\hline
+		\end{tabular}
+		\floatfoot{The metrics for \drugC{}. The metrics are defined in Sec. \ref{section:metrics}. U indicates an undefined value as given in Eq. \ref{eq:2}.}
+	\end{center}
+\end{sidewaystable}
+
+\let\maxctr\undefined
+
+\end{document}
