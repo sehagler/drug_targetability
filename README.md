@@ -6,7 +6,11 @@ The software is designed to address the challenge of evaluating drug treatments 
 
 ## Citations
 
-ADD CITATIONS ASSOCIATED WITH THIS PROJECT HERE
+Cite this work as:
+
+Quantifying Cancer Drug Targetability across Biochemical Pathways  
+Stuart Hagler  
+bioRxiv 2024.09.27.615497; doi: https[]()://doi.org/10.1101/2024.09.27.615497
 
 ## Package Overview
 
@@ -70,7 +74,7 @@ The license information for the Universal Protein Resource is available at [Unip
 
 A more detailed treatment of the construction and use of the metrics calculated by this software is provided in <link to BioArxiv paper here>.  Only a high-level summary is provided in the following.
 
-ADD LINK TO PAPER HERE
+https://www.biorxiv.org/content/10.1101/2024.09.27.615497v1
 
 ## REACTOME TREES
 
